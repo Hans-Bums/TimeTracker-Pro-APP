@@ -114,7 +114,8 @@ body {
   margin-bottom: 8px;
 }
 .form-group input,
-.form-group select {
+.form-group select,
+.form-group textarea {
   width: 100%;
   padding: 12px;
   background: rgba(15, 23, 42, 0.5);
@@ -122,11 +123,20 @@ body {
   border-radius: 12px;
   color: white;
   font-size: 14px;
+  font-family: inherit;
+}
+.form-group textarea {
+  min-height: 80px;
+  resize: vertical;
 }
 .form-group input:focus,
-.form-group select:focus {
+.form-group select:focus,
+.form-group textarea:focus {
   outline: none;
   border-color: #06B6D4;
+}
+.form-full {
+  grid-column: 1 / -1;
 }
 .btn {
   padding: 16px 32px;
@@ -161,6 +171,16 @@ body {
   gap: 16px;
   flex-wrap: wrap;
   margin-bottom: 12px;
+}
+.entry-note {
+  margin-top: 12px;
+  padding: 12px;
+  background: rgba(6, 182, 212, 0.1);
+  border-left: 3px solid #06B6D4;
+  border-radius: 8px;
+  font-size: 14px;
+  color: #cbd5e1;
+  font-style: italic;
 }
 .badge {
   padding: 4px 12px;
@@ -357,6 +377,12 @@ body {
   color: #22C55E;
   font-family: monospace;
 }
+.export-buttons {
+  display: flex;
+  gap: 12px;
+  margin-top: 16px;
+  flex-wrap: wrap;
+}
 </style>
 </head>
 <body>
@@ -364,8 +390,7 @@ body {
   <div class="header">
     <div style="display: flex; justify-content: space-between; align-items: start; flex-wrap: wrap; gap: 16px;">
       <div>
-        <h1>⏱️ ZeitTracker Pro 
-          <span class="sync-status" id="sync-status">⏳ Verbinde...</span>
+        <h1>⏱️ ZeitTracker Pro <span class="sync-status" id="sync-status">⏳ Verbinde...</span>
           <span class="user-id-display" id="user-id-display" onclick="showUserIdModal()" title="Klick zum Ändern">👤 User ID</span>
         </h1>
         <p>Professionelle Zeiterfassung mit Cloud-Synchronisation</p>
@@ -406,6 +431,10 @@ body {
             <option value="">Wählen...</option>
           </select>
         </div>
+        <div class="form-group form-full">
+          <label>💬 Notiz (optional)</label>
+          <textarea id="entry-note" placeholder="z.B. Besprechung mit Team, Bug XY behoben, etc."></textarea>
+        </div>
       </div>
       <button class="btn" onclick="addEntry()">➕ Eintrag hinzufügen</button>
     </div>
@@ -444,6 +473,11 @@ body {
         <button class="tab active" onclick="setStatsPeriod('day')">Heute</button>
         <button class="tab" onclick="setStatsPeriod('week')">Diese Woche</button>
         <button class="tab" onclick="setStatsPeriod('month')">Dieser Monat</button>
+        <button class="tab" onclick="setStatsPeriod('all')">Alles</button>
+      </div>
+      <div class="export-buttons">
+        <button class="btn btn-small btn-success" onclick="exportToExcel()">📊 Excel Export</button>
+        <button class="btn btn-small btn-warning" onclick="exportToPDF()">📄 PDF Report</button>
       </div>
     </div>
     
@@ -486,6 +520,7 @@ body {
   </div>
 </div>
 
+<!-- Modals -->
 <div id="userid-modal" class="modal hidden" onclick="if(event.target===this) closeUserIdModal()">
   <div class="modal-content">
     <h3>🔑 Deine User-ID</h3>
@@ -530,6 +565,10 @@ body {
         <select id="edit-entry-aufgabe">
           <option value="">Wählen...</option>
         </select>
+      </div>
+      <div class="form-group form-full">
+        <label>💬 Notiz (optional)</label>
+        <textarea id="edit-entry-note" placeholder="z.B. Besprechung mit Team, Bug XY behoben, etc."></textarea>
       </div>
     </div>
     <div style="display: flex; gap: 12px; margin-top: 24px;">
@@ -603,6 +642,8 @@ body {
 
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-database-compat.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 
 <script>
 const firebaseConfig = {
@@ -629,18 +670,46 @@ try {
   updateSyncStatus('error');
 }
 
+function setCookie(name, value, days) {
+  const expires = new Date();
+  expires.setTime(expires.getTime() + days * 24 * 60 * 60 * 1000);
+  document.cookie = name + '=' + value + ';expires=' + expires.toUTCString() + ';path=/';
+}
+
+function getCookie(name) {
+  const nameEQ = name + '=';
+  const ca = document.cookie.split(';');
+  for (let i = 0; i < ca.length; i++) {
+    let c = ca[i];
+    while (c.charAt(0) === ' ') c = c.substring(1, c.length);
+    if (c.indexOf(nameEQ) === 0) return c.substring(nameEQ.length, c.length);
+  }
+  return null;
+}
+
 function getUserId() {
   let userId = localStorage.getItem('zeittracker-user-id');
   if (!userId) {
-    userId = 'user_' + Math.random().toString(36).substr(2, 9);
+    userId = getCookie('zeittracker-user-id');
+    if (userId) {
+      localStorage.setItem('zeittracker-user-id', userId);
+    }
+  }
+  if (!userId) {
+    userId = 'user_' + Math.random().toString(36).substr(2, 9) + Date.now().toString(36);
     localStorage.setItem('zeittracker-user-id', userId);
+    setCookie('zeittracker-user-id', userId, 3650);
+  } else {
+    setCookie('zeittracker-user-id', userId, 3650);
   }
   return userId;
 }
 
 function setUserId(newId) {
   localStorage.setItem('zeittracker-user-id', newId);
+  setCookie('zeittracker-user-id', newId, 3650);
   state.userId = newId;
+  updateUserIdDisplay();
   loadFromFirebase();
 }
 
@@ -664,7 +733,6 @@ let state = {
 function updateSyncStatus(status) {
   const statusEl = document.getElementById('sync-status');
   statusEl.className = 'sync-status ' + status;
-  
   if (status === 'connected') {
     statusEl.textContent = '☁️ Cloud-Sync aktiv';
   } else if (status === 'offline') {
@@ -705,7 +773,6 @@ function enableUserIdEdit() {
       const newId = prompt('Neue User-ID eingeben (oder User-ID vom anderen Gerät):', state.userId);
       if (newId && newId.trim()) {
         setUserId(newId.trim());
-        updateUserIdDisplay();
         alert('User-ID geändert! Daten werden jetzt geladen...');
         closeUserIdModal();
       }
@@ -715,7 +782,6 @@ function enableUserIdEdit() {
 
 function syncToFirebase() {
   if (!isFirebaseConfigured) return;
-  
   try {
     const userRef = database.ref('users/' + state.userId);
     userRef.set({
@@ -735,7 +801,6 @@ function loadFromFirebase() {
     loadData();
     return;
   }
-  
   try {
     const userRef = database.ref('users/' + state.userId);
     userRef.off();
@@ -785,12 +850,10 @@ function showView(view) {
   document.getElementById('tracker-view').className = view === 'tracker' ? '' : 'hidden';
   document.getElementById('config-view').className = view === 'config' ? '' : 'hidden';
   document.getElementById('stats-view').className = view === 'stats' ? '' : 'hidden';
-  
   document.querySelectorAll('.header .tab').forEach(tab => tab.classList.remove('active'));
   if (window.event && window.event.target && window.event.target.classList.contains('tab')) {
     window.event.target.classList.add('active');
   }
-  
   if (view === 'tracker') renderEntries();
   if (view === 'config') renderBereiche();
   if (view === 'stats') renderStats();
@@ -802,6 +865,7 @@ function addEntry() {
   const end = document.getElementById('entry-end').value;
   const bereichId = document.getElementById('entry-bereich').value;
   const aufgabe = document.getElementById('entry-aufgabe').value;
+  const note = document.getElementById('entry-note').value.trim();
   
   if (!date || !start || !end || !bereichId || !aufgabe) {
     alert('Bitte alle Felder ausfüllen!');
@@ -823,6 +887,7 @@ function addEntry() {
     endTime: end,
     bereichId,
     aufgabe,
+    note: note || '',
     bereichName: bereich.name,
     bereichColor: bereich.color,
     aufgabeColor: aufgabeObj?.color || '#3B82F6'
@@ -835,6 +900,7 @@ function addEntry() {
   document.getElementById('entry-end').value = '';
   document.getElementById('entry-bereich').value = '';
   document.getElementById('entry-aufgabe').value = '';
+  document.getElementById('entry-note').value = '';
 }
 
 function deleteEntry(id) {
@@ -848,19 +914,15 @@ function deleteEntry(id) {
 function showEntryEditModal(entryId) {
   const entry = state.entries.find(e => e.id === entryId);
   if (!entry) return;
-  
   state.editingEntryId = entryId;
-  
   document.getElementById('edit-entry-date').value = entry.date;
   document.getElementById('edit-entry-start').value = entry.startTime;
   document.getElementById('edit-entry-end').value = entry.endTime;
-  
+  document.getElementById('edit-entry-note').value = entry.note || '';
   const bereichSelect = document.getElementById('edit-entry-bereich');
   bereichSelect.innerHTML = '<option value="">Wählen...</option>' + 
     state.bereiche.map(b => `<option value="${b.id}" ${b.id == entry.bereichId ? 'selected' : ''}>${b.name}</option>`).join('');
-  
   updateEditAufgabeSelect(entry.aufgabe);
-  
   document.getElementById('entry-edit-modal').classList.remove('hidden');
 }
 
@@ -872,12 +934,10 @@ function closeEntryEditModal() {
 function updateEditAufgabeSelect(selectedAufgabe = null) {
   const bereichId = document.getElementById('edit-entry-bereich').value;
   const select = document.getElementById('edit-entry-aufgabe');
-  
   if (!bereichId) {
     select.innerHTML = '<option value="">Wählen...</option>';
     return;
   }
-  
   const bereich = state.bereiche.find(b => b.id == bereichId);
   select.innerHTML = '<option value="">Wählen...</option>' + 
     (bereich?.aufgaben || []).map(a => `<option value="${a.name}" ${a.name === selectedAufgabe ? 'selected' : ''}>${a.name}</option>`).join('');
@@ -886,35 +946,31 @@ function updateEditAufgabeSelect(selectedAufgabe = null) {
 function saveEntryEdit() {
   const entry = state.entries.find(e => e.id === state.editingEntryId);
   if (!entry) return;
-  
   const date = document.getElementById('edit-entry-date').value;
   const start = document.getElementById('edit-entry-start').value;
   const end = document.getElementById('edit-entry-end').value;
   const bereichId = document.getElementById('edit-entry-bereich').value;
   const aufgabe = document.getElementById('edit-entry-aufgabe').value;
-  
+  const note = document.getElementById('edit-entry-note').value.trim();
   if (!date || !start || !end || !bereichId || !aufgabe) {
     alert('Bitte alle Felder ausfüllen!');
     return;
   }
-  
   const bereich = state.bereiche.find(b => b.id == bereichId);
   if (!bereich) {
     alert('Bereich nicht gefunden!');
     return;
   }
-  
   const aufgabeObj = bereich.aufgaben.find(a => a.name === aufgabe);
-  
   entry.date = date;
   entry.startTime = start;
   entry.endTime = end;
   entry.bereichId = bereichId;
   entry.aufgabe = aufgabe;
+  entry.note = note || '';
   entry.bereichName = bereich.name;
   entry.bereichColor = bereich.color;
   entry.aufgabeColor = aufgabeObj?.color || '#3B82F6';
-  
   saveData();
   renderEntries();
   closeEntryEditModal();
@@ -926,7 +982,6 @@ function renderEntries() {
     list.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 32px 0;">Noch keine Einträge vorhanden</p>';
     return;
   }
-  
   list.innerHTML = state.entries.map(e => `
     <div class="entry" ondblclick="showEntryEditModal(${e.id})" style="cursor: pointer;" title="Doppelklick zum Bearbeiten">
       <div class="entry-header">
@@ -939,6 +994,7 @@ function renderEntries() {
             <span class="tag" style="background-color: ${e.bereichColor}">${e.bereichName}</span>
             <span class="tag" style="background-color: ${e.aufgabeColor}">${e.aufgabe}</span>
           </div>
+          ${e.note ? `<div class="entry-note">💬 ${e.note}</div>` : ''}
         </div>
         <div style="display: flex; gap: 8px;">
           <button class="btn btn-small btn-warning" onclick="event.stopPropagation(); showEntryEditModal(${e.id})">✏️</button>
@@ -966,12 +1022,10 @@ function updateBereichSelect() {
 function updateAufgabeSelect() {
   const bereichId = document.getElementById('entry-bereich').value;
   const select = document.getElementById('entry-aufgabe');
-  
   if (!bereichId) {
     select.innerHTML = '<option value="">Wählen...</option>';
     return;
   }
-  
   const bereich = state.bereiche.find(b => b.id == bereichId);
   select.innerHTML = '<option value="">Wählen...</option>' + 
     (bereich?.aufgaben || []).map(a => `<option value="${a.name}">${a.name}</option>`).join('');
@@ -992,12 +1046,10 @@ function closeModal() {
 
 function confirmAdd() {
   const name = document.getElementById('modal-input').value.trim();
-  
   if (!name) {
     alert('Bitte einen Namen eingeben!');
     return;
   }
-  
   if (state.modalType === 'bereich') {
     state.bereiche.push({
       id: Date.now(),
@@ -1019,7 +1071,6 @@ function confirmAdd() {
       return;
     }
   }
-  
   saveData();
   renderBereiche();
   updateBereichSelect();
@@ -1030,7 +1081,6 @@ function showEditModal(type, id, bereichId = null) {
   state.editType = type;
   state.editId = id;
   state.editBereichId = bereichId;
-  
   let currentName = '';
   if (type === 'bereich') {
     const bereich = state.bereiche.find(b => b.id === id);
@@ -1042,7 +1092,6 @@ function showEditModal(type, id, bereichId = null) {
     currentName = aufgabe?.name || '';
     document.getElementById('edit-modal-title').textContent = 'Aufgabe umbenennen';
   }
-  
   document.getElementById('edit-modal-input').value = currentName;
   document.getElementById('edit-modal').classList.remove('hidden');
   setTimeout(() => document.getElementById('edit-modal-input').focus(), 100);
@@ -1058,7 +1107,6 @@ function confirmEdit() {
     alert('Bitte einen Namen eingeben!');
     return;
   }
-  
   if (state.editType === 'bereich') {
     const bereich = state.bereiche.find(b => b.id === state.editId);
     if (bereich) bereich.name = newName;
@@ -1069,7 +1117,6 @@ function confirmEdit() {
       if (aufgabe) aufgabe.name = newName;
     }
   }
-  
   saveData();
   renderBereiche();
   updateBereichSelect();
@@ -1098,7 +1145,6 @@ function selectColor(color) {
       if (aufgabe) aufgabe.color = color;
     }
   }
-  
   saveData();
   renderBereiche();
   closeColorModal();
@@ -1126,12 +1172,10 @@ function deleteAufgabe(bereichId, aufgabeId) {
 
 function renderBereiche() {
   const list = document.getElementById('bereiche-list');
-  
   if (state.bereiche.length === 0) {
     list.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 32px 0;">Noch keine Bereiche vorhanden</p>';
     return;
   }
-  
   list.innerHTML = state.bereiche.map(b => `
     <div class="bereich-item">
       <div class="bereich-header">
@@ -1191,6 +1235,8 @@ function getFilteredEntries() {
       return entryDateOnly >= weekStart && entryDateOnly <= today;
     } else if (state.statsPeriod === 'month') {
       return entryDateOnly.getMonth() === now.getMonth() && entryDateOnly.getFullYear() === now.getFullYear();
+    } else if (state.statsPeriod === 'all') {
+      return true;
     }
     return true;
   });
@@ -1204,12 +1250,10 @@ function calculateStats() {
     aufgaben: {},
     kombiniert: {}
   };
-  
   filtered.forEach(entry => {
     const [sh, sm] = entry.startTime.split(':').map(Number);
     const [eh, em] = entry.endTime.split(':').map(Number);
     const duration = (eh * 60 + em) - (sh * 60 + sm);
-    
     if (duration > 0) {
       stats.total += duration;
       stats.bereiche[entry.bereichName] = (stats.bereiche[entry.bereichName] || 0) + duration;
@@ -1218,7 +1262,6 @@ function calculateStats() {
       stats.kombiniert[kombiKey] = (stats.kombiniert[kombiKey] || 0) + duration;
     }
   });
-  
   return { stats, count: filtered.length };
 }
 
@@ -1234,7 +1277,6 @@ function showTooltip(event, text) {
     tooltip.className = 'tooltip';
     document.body.appendChild(tooltip);
   }
-  
   tooltip.innerHTML = text;
   tooltip.style.display = 'block';
   tooltip.style.left = (event.pageX + 10) + 'px';
@@ -1251,7 +1293,6 @@ function hideTooltip() {
 function createPieChart(svgId, data, total) {
   const svg = document.getElementById(svgId);
   svg.innerHTML = '';
-  
   if (total === 0 || Object.keys(data).length === 0) {
     const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
     text.setAttribute('x', '150');
@@ -1262,27 +1303,21 @@ function createPieChart(svgId, data, total) {
     svg.appendChild(text);
     return;
   }
-  
   const centerX = 150;
   const centerY = 150;
   const radius = 100;
   let currentAngle = -90;
-  
   Object.entries(data).forEach(([name, minutes]) => {
     const percentage = minutes / total;
     const angle = percentage * 360;
-    
     if (angle > 0) {
       const startAngle = currentAngle * Math.PI / 180;
       const endAngle = (currentAngle + angle) * Math.PI / 180;
-      
       const x1 = centerX + radius * Math.cos(startAngle);
       const y1 = centerY + radius * Math.sin(startAngle);
       const x2 = centerX + radius * Math.cos(endAngle);
       const y2 = centerY + radius * Math.sin(endAngle);
-      
       const largeArc = angle > 180 ? 1 : 0;
-      
       const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       const d = [
         `M ${centerX} ${centerY}`,
@@ -1290,9 +1325,7 @@ function createPieChart(svgId, data, total) {
         `A ${radius} ${radius} 0 ${largeArc} 1 ${x2} ${y2}`,
         'Z'
       ].join(' ');
-      
       path.setAttribute('d', d);
-      
       let color = '#3B82F6';
       if (svgId === 'pie-bereiche') {
         const bereich = state.bereiche.find(b => b.name === name);
@@ -1310,20 +1343,16 @@ function createPieChart(svgId, data, total) {
         const bereich = state.bereiche.find(b => b.name === bereichName);
         color = bereich?.color || '#3B82F6';
       }
-      
       path.setAttribute('fill', color);
       path.setAttribute('stroke', '#1e293b');
       path.setAttribute('stroke-width', '2');
       path.style.cursor = 'pointer';
-      
       const percentText = (percentage * 100).toFixed(1) + '%';
       const timeText = formatMinutes(minutes);
       const tooltipText = `<strong>${name}</strong><br>${timeText} (${percentText})`;
-      
       path.addEventListener('mouseenter', (e) => showTooltip(e, tooltipText));
       path.addEventListener('mousemove', (e) => showTooltip(e, tooltipText));
       path.addEventListener('mouseleave', hideTooltip);
-      
       svg.appendChild(path);
       currentAngle += angle;
     }
@@ -1332,17 +1361,14 @@ function createPieChart(svgId, data, total) {
 
 function createLegend(legendId, data, total) {
   const legend = document.getElementById(legendId);
-  
   if (total === 0 || Object.keys(data).length === 0) {
     legend.innerHTML = '<p style="color: #94a3b8; text-align: center;">Keine Daten für diesen Zeitraum</p>';
     return;
   }
-  
   legend.innerHTML = Object.entries(data)
     .sort((a, b) => b[1] - a[1])
     .map(([name, minutes]) => {
       const percentage = ((minutes / total) * 100).toFixed(1);
-      
       let color = '#3B82F6';
       if (legendId === 'legend-bereiche') {
         const bereich = state.bereiche.find(b => b.name === name);
@@ -1360,7 +1386,6 @@ function createLegend(legendId, data, total) {
         const bereich = state.bereiche.find(b => b.name === bereichName);
         color = bereich?.color || '#3B82F6';
       }
-      
       return `
         <div class="legend-item">
           <div class="legend-color" style="background-color: ${color}"></div>
@@ -1373,24 +1398,19 @@ function createLegend(legendId, data, total) {
 
 function renderStats() {
   const { stats, count } = calculateStats();
-  
   document.getElementById('total-time').textContent = formatMinutes(stats.total);
   document.getElementById('total-entries').textContent = `${count} Einträge`;
-  
   createPieChart('pie-bereiche', stats.bereiche, stats.total);
   createPieChart('pie-aufgaben', stats.aufgaben, stats.total);
   createPieChart('pie-kombiniert', stats.kombiniert, stats.total);
-  
   createLegend('legend-bereiche', stats.bereiche, stats.total);
   createLegend('legend-aufgaben', stats.aufgaben, stats.total);
   createLegend('legend-kombiniert', stats.kombiniert, stats.total);
-  
   const list = document.getElementById('stats-bereiche');
   if (Object.keys(stats.bereiche).length === 0) {
     list.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 32px 0;">Keine Daten für diesen Zeitraum</p>';
     return;
   }
-  
   list.innerHTML = Object.entries(stats.bereiche).map(([name, minutes]) => {
     const bereich = state.bereiche.find(b => b.name === name);
     const percent = ((minutes / stats.total) * 100).toFixed(1);
@@ -1409,18 +1429,126 @@ function renderStats() {
   }).join('');
 }
 
+function exportToExcel() {
+  const filtered = getFilteredEntries().sort((a, b) => new Date(b.date) - new Date(a.date));
+  if (filtered.length === 0) {
+    alert('Keine Einträge zum Exportieren!');
+    return;
+  }
+  const data = filtered.map(e => ({
+    'Datum': new Date(e.date).toLocaleDateString('de-DE'),
+    'Von': e.startTime,
+    'Bis': e.endTime,
+    'Dauer': calculateDuration(e.startTime, e.endTime),
+    'Bereich': e.bereichName,
+    'Aufgabe': e.aufgabe,
+    'Notiz': e.note || ''
+  }));
+  const { stats } = calculateStats();
+  const totalRow = {
+    'Datum': '',
+    'Von': '',
+    'Bis': '',
+    'Dauer': formatMinutes(stats.total),
+    'Bereich': 'GESAMT',
+    'Aufgabe': '',
+    'Notiz': ''
+  };
+  data.push(totalRow);
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Zeiterfassung');
+  const periodName = {
+    'day': 'Heute',
+    'week': 'Diese_Woche',
+    'month': 'Dieser_Monat',
+    'all': 'Alle'
+  }[state.statsPeriod];
+  XLSX.writeFile(wb, `Zeiterfassung_${periodName}_${new Date().toISOString().split('T')[0]}.xlsx`);
+}
+
+function exportToPDF() {
+  const filtered = getFilteredEntries().sort((a, b) => new Date(a.date) - new Date(b.date));
+  if (filtered.length === 0) {
+    alert('Keine Einträge zum Exportieren!');
+    return;
+  }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF();
+  const { stats, count } = calculateStats();
+  doc.setFontSize(20);
+  doc.text('ZEITERFASSUNG', 105, 20, { align: 'center' });
+  doc.setFontSize(12);
+  const periodName = {
+    'day': 'Heute',
+    'week': 'Diese Woche',
+    'month': 'Dieser Monat',
+    'all': 'Gesamter Zeitraum'
+  }[state.statsPeriod];
+  doc.text(`Zeitraum: ${periodName}`, 105, 30, { align: 'center' });
+  doc.setFontSize(10);
+  doc.text(`Erstellt am: ${new Date().toLocaleDateString('de-DE')}`, 105, 36, { align: 'center' });
+  doc.setFontSize(14);
+  doc.text('ZUSAMMENFASSUNG', 20, 50);
+  doc.setFontSize(10);
+  doc.text(`Gesamtzeit: ${formatMinutes(stats.total)}`, 20, 58);
+  doc.text(`Anzahl Einträge: ${count}`, 20, 64);
+  if (stats.total > 0) {
+    const avgPerEntry = Math.round(stats.total / count);
+    doc.text(`Durchschnitt/Eintrag: ${formatMinutes(avgPerEntry)}`, 20, 70);
+  }
+  doc.setFontSize(14);
+  doc.text('DETAILLIERTE EINTRÄGE', 20, 85);
+  doc.setFontSize(9);
+  let yPos = 95;
+  filtered.forEach((entry, index) => {
+    if (yPos > 270) {
+      doc.addPage();
+      yPos = 20;
+    }
+    doc.setDrawColor(6, 182, 212);
+    doc.line(20, yPos - 2, 190, yPos - 2);
+    doc.text(`${new Date(entry.date).toLocaleDateString('de-DE')} | ${entry.startTime} - ${entry.endTime} | ${calculateDuration(entry.startTime, entry.endTime)}`, 20, yPos);
+    yPos += 6;
+    doc.text(`${entry.bereichName} → ${entry.aufgabe}`, 20, yPos);
+    yPos += 6;
+    if (entry.note) {
+      doc.setFont(undefined, 'italic');
+      const noteLines = doc.splitTextToSize(`Notiz: ${entry.note}`, 170);
+      noteLines.forEach(line => {
+        if (yPos > 270) {
+          doc.addPage();
+          yPos = 20;
+        }
+        doc.text(line, 20, yPos);
+        yPos += 5;
+      });
+      doc.setFont(undefined, 'normal');
+    }
+    yPos += 5;
+  });
+  if (yPos > 240) {
+    doc.addPage();
+    yPos = 20;
+  }
+  yPos += 10;
+  doc.setFontSize(10);
+  doc.text('Unterschrift Mitarbeiter: _________________________', 20, yPos);
+  yPos += 10;
+  doc.text('Unterschrift Vorgesetzter: _________________________', 20, yPos);
+  const fileName = `Zeiterfassung_${periodName.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+  doc.save(fileName);
+}
+
 function init() {
   updateUserIdDisplay();
   loadFromFirebase();
-  
   const today = new Date().toISOString().split('T')[0];
   const now = new Date().toTimeString().slice(0, 5);
   document.getElementById('entry-date').value = today;
   document.getElementById('entry-start').value = now;
-  
   updateBereichSelect();
   renderEntries();
-  
   document.getElementById('entry-bereich').addEventListener('change', updateAufgabeSelect);
   document.getElementById('edit-entry-bereich').addEventListener('change', () => updateEditAufgabeSelect());
 }
