@@ -475,11 +475,26 @@ body {
 
   <div id="stats-view" class="hidden">
     <div class="card">
-      <div class="tabs">
+      <h2>📊 Zeitraum wählen</h2>
+      <div class="tabs" style="margin-bottom: 16px;">
         <button class="tab active" onclick="setStatsPeriod('day')">Heute</button>
         <button class="tab" onclick="setStatsPeriod('week')">Diese Woche</button>
         <button class="tab" onclick="setStatsPeriod('month')">Dieser Monat</button>
         <button class="tab" onclick="setStatsPeriod('all')">Alles</button>
+      </div>
+      <div style="background: rgba(15, 23, 42, 0.5); border: 1px solid #334155; border-radius: 12px; padding: 16px; margin-bottom: 16px;">
+        <p style="color: #06B6D4; font-weight: 600; margin-bottom: 12px;">🗓️ Eigener Zeitraum:</p>
+        <div style="display: grid; grid-template-columns: 1fr 1fr auto; gap: 12px; align-items: end;">
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>Von Datum</label>
+            <input type="date" id="stats-date-from" style="width: 100%; padding: 10px; background: rgba(15, 23, 42, 0.5); border: 1px solid #475569; border-radius: 8px; color: white;">
+          </div>
+          <div class="form-group" style="margin-bottom: 0;">
+            <label>Bis Datum</label>
+            <input type="date" id="stats-date-to" style="width: 100%; padding: 10px; background: rgba(15, 23, 42, 0.5); border: 1px solid #475569; border-radius: 8px; color: white;">
+          </div>
+          <button class="btn btn-small" onclick="applyCustomDateRange()">Anwenden</button>
+        </div>
       </div>
       <div class="export-buttons">
         <button class="btn btn-small btn-success" onclick="exportToExcel()">📊 Excel Export</button>
@@ -727,6 +742,8 @@ let state = {
   modalBereichId: null,
   statsPeriod: 'day',
   trackerPeriod: 'day',
+  customDateFrom: null,
+  customDateTo: null,
   colorEditType: null,
   colorEditId: null,
   colorEditBereichId: null,
@@ -1226,10 +1243,36 @@ function renderBereiche() {
 
 function setStatsPeriod(period) {
   state.statsPeriod = period;
+  state.customDateFrom = null;
+  state.customDateTo = null;
   document.querySelectorAll('#stats-view .tabs .tab').forEach(tab => tab.classList.remove('active'));
   if (window.event && window.event.target) {
     window.event.target.classList.add('active');
   }
+  renderStats();
+}
+
+function applyCustomDateRange() {
+  const fromDate = document.getElementById('stats-date-from').value;
+  const toDate = document.getElementById('stats-date-to').value;
+  
+  if (!fromDate || !toDate) {
+    alert('Bitte beide Datumsfelder ausfüllen!');
+    return;
+  }
+  
+  if (new Date(fromDate) > new Date(toDate)) {
+    alert('Von-Datum muss vor Bis-Datum liegen!');
+    return;
+  }
+  
+  state.statsPeriod = 'custom';
+  state.customDateFrom = fromDate;
+  state.customDateTo = toDate;
+  
+  // Deactivate all quick tabs
+  document.querySelectorAll('#stats-view .tabs .tab').forEach(tab => tab.classList.remove('active'));
+  
   renderStats();
 }
 
@@ -1250,7 +1293,11 @@ function getFilteredEntries() {
     const entryDate = new Date(entry.date + 'T00:00:00');
     const entryDateOnly = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate());
     
-    if (state.statsPeriod === 'day') {
+    if (state.statsPeriod === 'custom' && state.customDateFrom && state.customDateTo) {
+      const fromDate = new Date(state.customDateFrom + 'T00:00:00');
+      const toDate = new Date(state.customDateTo + 'T00:00:00');
+      return entryDateOnly >= fromDate && entryDateOnly <= toDate;
+    } else if (state.statsPeriod === 'day') {
       return entryDateOnly.getTime() === today.getTime();
     } else if (state.statsPeriod === 'week') {
       const weekStart = new Date(today);
@@ -1512,7 +1559,9 @@ function exportToExcel() {
     'day': 'Heute',
     'week': 'Diese_Woche',
     'month': 'Dieser_Monat',
-    'all': 'Alle'
+    'all': 'Alle',
+    'custom': state.customDateFrom && state.customDateTo ? 
+      `${state.customDateFrom}_bis_${state.customDateTo}` : 'Zeitraum'
   }[state.statsPeriod];
   XLSX.writeFile(wb, `Zeiterfassung_${periodName}_${new Date().toISOString().split('T')[0]}.xlsx`);
 }
@@ -1533,7 +1582,9 @@ function exportToPDF() {
     'day': 'Heute',
     'week': 'Diese Woche',
     'month': 'Dieser Monat',
-    'all': 'Gesamter Zeitraum'
+    'all': 'Gesamter Zeitraum',
+    'custom': state.customDateFrom && state.customDateTo ? 
+      `${new Date(state.customDateFrom).toLocaleDateString('de-DE')} - ${new Date(state.customDateTo).toLocaleDateString('de-DE')}` : 'Eigener Zeitraum'
   }[state.statsPeriod];
   doc.text(`Zeitraum: ${periodName}`, 105, 30, { align: 'center' });
   doc.setFontSize(10);
@@ -1586,7 +1637,15 @@ function exportToPDF() {
   doc.text('Unterschrift Mitarbeiter: _________________________', 20, yPos);
   yPos += 10;
   doc.text('Unterschrift Vorgesetzter: _________________________', 20, yPos);
-  const fileName = `Zeiterfassung_${periodName.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
+  const fileNamePeriod = {
+    'day': 'Heute',
+    'week': 'Diese_Woche',
+    'month': 'Dieser_Monat',
+    'all': 'Alle',
+    'custom': state.customDateFrom && state.customDateTo ? 
+      `${state.customDateFrom}_bis_${state.customDateTo}` : 'Zeitraum'
+  }[state.statsPeriod];
+  const fileName = `Zeiterfassung_${fileNamePeriod.replace(/ /g, '_')}_${new Date().toISOString().split('T')[0]}.pdf`;
   doc.save(fileName);
 }
 
