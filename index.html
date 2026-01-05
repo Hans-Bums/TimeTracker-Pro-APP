@@ -441,7 +441,13 @@ body {
 
     <div class="card">
       <h2>Zeiteinträge</h2>
-      <p style="color: #94a3b8; font-size: 14px; margin-bottom: 16px;">💡 Tipp: Doppelklick auf Eintrag zum Bearbeiten</p>
+      <div class="tabs" style="margin-bottom: 16px;">
+        <button class="tab active" onclick="setTrackerPeriod('day')">Heute</button>
+        <button class="tab" onclick="setTrackerPeriod('week')">Diese Woche</button>
+        <button class="tab" onclick="setTrackerPeriod('month')">Dieser Monat</button>
+        <button class="tab" onclick="setTrackerPeriod('all')">Alle</button>
+      </div>
+      <p style="color: #94a3b8; font-size: 14px; margin-bottom: 16px;">💡 Tipp: 💬 Button für Notizen | ✏️ zum Bearbeiten | Doppelklick auch möglich</p>
       <div id="entries-list"></div>
     </div>
   </div>
@@ -720,6 +726,7 @@ let state = {
   modalType: null,
   modalBereichId: null,
   statsPeriod: 'day',
+  trackerPeriod: 'day',
   colorEditType: null,
   colorEditId: null,
   colorEditBereichId: null,
@@ -978,11 +985,19 @@ function saveEntryEdit() {
 
 function renderEntries() {
   const list = document.getElementById('entries-list');
-  if (state.entries.length === 0) {
-    list.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 32px 0;">Noch keine Einträge vorhanden</p>';
+  const filteredEntries = getFilteredTrackerEntries();
+  
+  if (filteredEntries.length === 0) {
+    const periodNames = {
+      'day': 'heute',
+      'week': 'diese Woche',
+      'month': 'diesen Monat',
+      'all': 'vorhanden'
+    };
+    list.innerHTML = `<p style="color: #94a3b8; text-align: center; padding: 32px 0;">Keine Einträge für ${periodNames[state.trackerPeriod]}</p>`;
     return;
   }
-  list.innerHTML = state.entries.map(e => `
+  list.innerHTML = filteredEntries.map(e => `
     <div class="entry" ondblclick="showEntryEditModal(${e.id})" style="cursor: pointer;" title="Doppelklick zum Bearbeiten">
       <div class="entry-header">
         <div style="flex: 1;">
@@ -997,6 +1012,7 @@ function renderEntries() {
           ${e.note ? `<div class="entry-note">💬 ${e.note}</div>` : ''}
         </div>
         <div style="display: flex; gap: 8px;">
+          <button class="btn btn-small" style="background: #06B6D4;" onclick="event.stopPropagation(); showEntryEditModal(${e.id})" title="Notiz ${e.note ? 'bearbeiten' : 'hinzufügen'}">💬</button>
           <button class="btn btn-small btn-warning" onclick="event.stopPropagation(); showEntryEditModal(${e.id})">✏️</button>
           <button class="btn btn-small btn-danger" onclick="event.stopPropagation(); deleteEntry(${e.id})">🗑️</button>
         </div>
@@ -1217,6 +1233,15 @@ function setStatsPeriod(period) {
   renderStats();
 }
 
+function setTrackerPeriod(period) {
+  state.trackerPeriod = period;
+  document.querySelectorAll('#tracker-view .tabs .tab').forEach(tab => tab.classList.remove('active'));
+  if (window.event && window.event.target) {
+    window.event.target.classList.add('active');
+  }
+  renderEntries();
+}
+
 function getFilteredEntries() {
   const now = new Date();
   const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
@@ -1236,6 +1261,31 @@ function getFilteredEntries() {
     } else if (state.statsPeriod === 'month') {
       return entryDateOnly.getMonth() === now.getMonth() && entryDateOnly.getFullYear() === now.getFullYear();
     } else if (state.statsPeriod === 'all') {
+      return true;
+    }
+    return true;
+  });
+}
+
+function getFilteredTrackerEntries() {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  
+  return state.entries.filter(entry => {
+    const entryDate = new Date(entry.date + 'T00:00:00');
+    const entryDateOnly = new Date(entryDate.getFullYear(), entryDate.getMonth(), entryDate.getDate());
+    
+    if (state.trackerPeriod === 'day') {
+      return entryDateOnly.getTime() === today.getTime();
+    } else if (state.trackerPeriod === 'week') {
+      const weekStart = new Date(today);
+      const dayOfWeek = today.getDay();
+      const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+      weekStart.setDate(today.getDate() - diff);
+      return entryDateOnly >= weekStart && entryDateOnly <= today;
+    } else if (state.trackerPeriod === 'month') {
+      return entryDateOnly.getMonth() === now.getMonth() && entryDateOnly.getFullYear() === now.getFullYear();
+    } else if (state.trackerPeriod === 'all') {
       return true;
     }
     return true;
