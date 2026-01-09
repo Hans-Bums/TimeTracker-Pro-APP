@@ -1506,27 +1506,68 @@ function renderStats() {
   createLegend('legend-bereiche', stats.bereiche, stats.total);
   createLegend('legend-aufgaben', stats.aufgaben, stats.total);
   createLegend('legend-kombiniert', stats.kombiniert, stats.total);
+  
   const list = document.getElementById('stats-bereiche');
   if (Object.keys(stats.bereiche).length === 0) {
     list.innerHTML = '<p style="color: #94a3b8; text-align: center; padding: 32px 0;">Keine Daten für diesen Zeitraum</p>';
     return;
   }
-  list.innerHTML = Object.entries(stats.bereiche).map(([name, minutes]) => {
-    const bereich = state.bereiche.find(b => b.name === name);
-    const percent = ((minutes / stats.total) * 100).toFixed(1);
-    return `
-      <div class="stat-card" style="margin-bottom: 16px;">
-        <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
-          <span style="font-weight: 500; font-size: 18px;">${name}</span>
-          <span style="color: #06B6D4; font-weight: bold; font-size: 20px;">${formatMinutes(minutes)}</span>
+  
+  // Calculate task times per bereich
+  const filtered = getFilteredEntries();
+  const bereichTasks = {};
+  filtered.forEach(entry => {
+    if (!bereichTasks[entry.bereichName]) {
+      bereichTasks[entry.bereichName] = {};
+    }
+    const [sh, sm] = entry.startTime.split(':').map(Number);
+    const [eh, em] = entry.endTime.split(':').map(Number);
+    const duration = (eh * 60 + em) - (sh * 60 + sm);
+    if (duration > 0) {
+      if (!bereichTasks[entry.bereichName][entry.aufgabe]) {
+        bereichTasks[entry.bereichName][entry.aufgabe] = {
+          minutes: 0,
+          color: entry.aufgabeColor
+        };
+      }
+      bereichTasks[entry.bereichName][entry.aufgabe].minutes += duration;
+    }
+  });
+  
+  list.innerHTML = Object.entries(stats.bereiche)
+    .sort((a, b) => b[1] - a[1])
+    .map(([name, minutes]) => {
+      const bereich = state.bereiche.find(b => b.name === name);
+      const percent = ((minutes / stats.total) * 100).toFixed(1);
+      
+      // Generate task list for this bereich
+      const tasks = bereichTasks[name] || {};
+      const taskHTML = Object.entries(tasks)
+        .sort((a, b) => b[1].minutes - a[1].minutes)
+        .map(([taskName, taskData]) => {
+          const taskPercent = ((taskData.minutes / minutes) * 100).toFixed(1);
+          return `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 8px 0 8px 24px; border-left: 3px solid ${taskData.color}; margin-left: 12px; margin-top: 8px;">
+              <span style="color: #94a3b8; font-size: 14px;">↳ ${taskName}</span>
+              <span style="color: #06B6D4; font-size: 14px; font-weight: 500;">${formatMinutes(taskData.minutes)} (${taskPercent}%)</span>
+            </div>
+          `;
+        }).join('');
+      
+      return `
+        <div class="stat-card" style="margin-bottom: 16px;">
+          <div style="display: flex; justify-content: space-between; margin-bottom: 12px;">
+            <span style="font-weight: 500; font-size: 18px;">${name}</span>
+            <span style="color: #06B6D4; font-weight: bold; font-size: 20px;">${formatMinutes(minutes)}</span>
+          </div>
+          <div style="width: 100%; background: #334155; border-radius: 9999px; height: 12px;">
+            <div style="height: 12px; border-radius: 9999px; width: ${percent}%; background-color: ${bereich?.color || '#3B82F6'};"></div>
+          </div>
+          <p style="font-size: 12px; color: #94a3b8; margin-top: 8px;">${percent}% der Gesamtzeit</p>
+          ${taskHTML}
         </div>
-        <div style="width: 100%; background: #334155; border-radius: 9999px; height: 12px;">
-          <div style="height: 12px; border-radius: 9999px; width: ${percent}%; background-color: ${bereich?.color || '#3B82F6'};"></div>
-        </div>
-        <p style="font-size: 12px; color: #94a3b8; margin-top: 8px;">${percent}% der Gesamtzeit</p>
-      </div>
-    `;
-  }).join('');
+      `;
+    }).join('');
 }
 
 function exportToExcel() {
